@@ -5,6 +5,8 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $MaxTextLength = 1000
+$HomeUrl = 'https://fanyi.sogou.com/'
+$TranslateUrl = 'https://fanyi.sogou.com/text?keyword={0}&transfrom=auto&transto=zh-CHS&model=general'
 
 function Send-Bubble {
     param(
@@ -38,73 +40,71 @@ function Get-DataText {
     return ''
 }
 
+function Open-Url {
+    param([string]$Url)
+    try {
+        Start-Process -FilePath $Url
+        return $null
+    } catch {
+        # 回落到 Process.Start 再试一次
+    }
+    try {
+        [System.Diagnostics.Process]::Start($Url) | Out-Null
+        return $null
+    } catch {
+        return $_.Exception.Message
+    }
+}
+
 if ([string]::IsNullOrWhiteSpace($paramPath) -and $args.Count -gt 0) {
     $paramPath = [string]$args[0]
 }
 
-if ([string]::IsNullOrWhiteSpace($paramPath)) {
-    Write-Output (@{ status = 'error'; error = '缺少参数文件路径' } | ConvertTo-Json -Compress)
-    exit 1
-}
+# 没传参数文件、文件读不出来时也照常打开首页，不中断
+$environment = $null
+$data = @{}
+$warning = $null
 
-try {
-    $payload = Get-Content -LiteralPath $paramPath -Raw -Encoding UTF8 | ConvertFrom-Json
-} catch {
-    Write-Output (@{ status = 'error'; error = "无法解析参数文件: $($_.Exception.Message)" } | ConvertTo-Json -Compress)
-    exit 1
-}
-
-$environment = $payload.environment
-$data = if ($payload.data) { $payload.data } else { @{} }
-$apiBase = if ($environment -and $environment.api_base) { [string]$environment.api_base } else { '' }
-
-$keyword = (Get-DataText -Data $data -Name 'target_text').Trim()
-
-if ($keyword.Length -eq 0) {
-    Send-Bubble -ApiBase $apiBase -NotifyType 'info' -Message '没有取到要翻译的文本：请先复制内容再双击 Ctrl+C，或在盒子搜索框粘贴文本' -Duration 3000
-    Write-Output (@{ status = 'info'; message = '翻译内容为空' } | ConvertTo-Json -Compress)
-    exit 0
-}
-
-# 超长文本会让 URL 超出浏览器上限，截断并告知用户
-$truncated = $false
-if ($keyword.Length -gt $MaxTextLength) {
-    # 截断点落在代理对中间会得到非法字符，回退一位
-    $cut = $MaxTextLength
-    if ([char]::IsHighSurrogate($keyword[$cut - 1])) { $cut-- }
-    $keyword = $keyword.Substring(0, $cut)
-    $truncated = $true
-    Send-Bubble -ApiBase $apiBase -NotifyType 'info' -Message "文本较长，仅翻译前 $MaxTextLength 个字符" -Duration 3000
-}
-
-$encodedKeyword = [uri]::EscapeDataString($keyword)
-$url = "https://fanyi.sogou.com/text?keyword=$encodedKeyword&transfrom=auto&transto=zh-CHS&model=general"
-
-$opened = $false
-$lastError = $null
-
-try {
-    Start-Process -FilePath $url
-    $opened = $true
-} catch {
-    $lastError = $_.Exception.Message
-}
-
-if (-not $opened) {
+if (-not [string]::IsNullOrWhiteSpace($paramPath)) {
     try {
-        [System.Diagnostics.Process]::Start($url) | Out-Null
-        $opened = $true
-        $lastError = $null
+        $payload = Get-Content -LiteralPath $paramPath -Raw -Encoding UTF8 | ConvertFrom-Json
+        $environment = $payload.environment
+        if ($payload.data) { $data = $payload.data }
     } catch {
-        $lastError = $_.Exception.Message
+        $warning = "参数文件读取失败，已改为打开翻译首页: $($_.Exception.Message)"
     }
 }
 
-if (-not $opened) {
-    Send-Bubble -ApiBase $apiBase -NotifyType 'error' -Message "打开浏览器失败: $lastError" -Duration 3000
-    Write-Output (@{ status = 'error'; error = "打开浏览器失败: $lastError" } | ConvertTo-Json -Compress)
+$apiBase = if ($environment -and $environment.api_base) { [string]$environment.api_base } else { '' }
+$keyword = (Get-DataText -Data $data -Name 'target_text').Trim()
+
+$url = $HomeUrl
+$truncated = $false
+$mode = 'home'
+
+if ($keyword.Length -gt 0) {
+    # 超长文本会让 URL 超出浏览器上限，截断并告知用户；截断点落在代理对中间时回退一位
+    if ($keyword.Length -gt $MaxTextLength) {
+        $cut = $MaxTextLength
+        if ([char]::IsHighSurrogate($keyword[$cut - 1])) { $cut-- }
+        $keyword = $keyword.Substring(0, $cut)
+        $truncated = $true
+        Send-Bubble -ApiBase $apiBase -NotifyType 'info' -Message "文本较长，仅翻译前 $MaxTextLength 个字符" -Duration 3000
+    }
+    $url = $TranslateUrl -f [uri]::EscapeDataString($keyword)
+    $mode = 'translate'
+}
+
+$openError = Open-Url -Url $url
+
+if ($openError) {
+    Send-Bubble -ApiBase $apiBase -NotifyType 'error' -Message "打开浏览器失败: $openError" -Duration 3000
+    Write-Output (@{ status = 'error'; error = "打开浏览器失败: $openError" } | ConvertTo-Json -Compress)
     exit 1
 }
 
-Write-Output (@{ status = 'ok'; keyword = $keyword; url = $url; truncated = $truncated } | ConvertTo-Json -Compress)
+$result = @{ status = 'ok'; mode = $mode; url = $url; truncated = $truncated }
+if ($keyword.Length -gt 0) { $result.keyword = $keyword }
+if ($warning) { $result.warning = $warning }
+Write-Output ($result | ConvertTo-Json -Compress)
 exit 0
