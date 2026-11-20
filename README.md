@@ -18,7 +18,7 @@
 
 ![搜狗翻译演示](./imgs/demo.gif "搜狗翻译演示")
 
-> ⚠️ 演示 GIF 待补录：请用 ScreenToGif / LICEcap 录制一段「复制文本 → 双击 Ctrl+C → 浏览器打开翻译页」的动图放入 `imgs/demo.gif`。
+
 
 ---
 
