@@ -3,9 +3,9 @@
 [bmscriptsbox.info]
 id = "68f2c4dd-77f7-4ef3-8ff9-6636eb804625"
 name = "搜狗翻译"
-desc = "复制文本搜狗翻译 | 剪贴板触发、双击Ctrl+C即译、自动检测源语言翻译为中文 | 一键在浏览器打开搜狗翻译结果页"
-version = "1.0.0"
-icon = "logo.png"
+desc = "搜狗翻译 | 复制文本双击 Ctrl+C 或在盒子搜索框粘贴文本即可唤起，自动识别源语言译成简体中文，浏览器一键打开翻译结果页"
+version = "1.2.0"
+icon = "./imgs/logo.png"
 
 [bmscriptsbox.runtime]
 language = "powershell"
@@ -16,8 +16,17 @@ terminal = "never"
 [bmscriptsbox.triggers.quick_copy]
 enabled = true
 
+[bmscriptsbox.triggers.search]
+enabled = true
+
+# 文本类输入置信度最低，搜索无更匹配结果时展示；weight 保证它排在同类推荐前面
+[[bmscriptsbox.triggers.search.match]]
+kind = "text"
+min_length = 1
+weight = 10
+
 [[bmscriptsbox.inputs]]
 name = "target_text"
-label = "关键词"
+label = "待翻译文本"
 type = "str"
 description = "要翻译的文本"
